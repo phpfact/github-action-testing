@@ -18,34 +18,64 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Read Current Version
+      - name: Get latest commit message
+        id: get_commit
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          echo "msg=$COMMIT_MSG" >> $GITHUB_OUTPUT
+
+      - name: Determine bump type
+        id: bump_type
+        run: |
+          MSG="${{ steps.get_commit.outputs.msg }}"
+          
+          if [[ "$MSG" == *"BREAKING CHANGE"* ]]; then
+            echo "type=major" >> $GITHUB_OUTPUT
+          elif [[ "$MSG" == feat:* ]]; then
+            echo "type=minor" >> $GITHUB_OUTPUT
+          elif [[ "$MSG" == fix:* ]]; then
+            echo "type=patch" >> $GITHUB_OUTPUT
+          else
+            echo "type=patch" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Read current version
         id: read_version
         run: |
           VERSION=$(cat VERSION)
           echo "current=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Bump Patch Version
+      - name: Bump version
         id: bump
         run: |
           VERSION=${{ steps.read_version.outputs.current }}
-          
+          TYPE=${{ steps.bump_type.outputs.type }}
+
           IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
-          
-          PATCH=$((PATCH + 1))
+
+          if [[ "$TYPE" == "major" ]]; then
+            MAJOR=$((MAJOR + 1))
+            MINOR=0
+            PATCH=0
+          elif [[ "$TYPE" == "minor" ]]; then
+            MINOR=$((MINOR + 1))
+            PATCH=0
+          else
+            PATCH=$((PATCH + 1))
+          fi
 
           NEW_VERSION="$MAJOR.$MINOR.$PATCH"
-
           echo $NEW_VERSION > VERSION
+
           echo "new=$NEW_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Commit Version Bump
+      - name: Commit & Push version
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-
           git add VERSION
-          git commit -m "Auto bump to version ${{ steps.bump.outputs.new }}" || echo "No changes to commit"
-          git push origin main
+          git commit -m "Auto bump version to ${{ steps.bump.outputs.new }}" || true
+          git push origin main || true
 
       - name: Create Tag
         run: |
